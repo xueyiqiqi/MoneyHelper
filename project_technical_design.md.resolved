@@ -1,0 +1,79 @@
+# 智能生活财务助手 - 前后端分离架构方案及 AI 模块技术设计文档
+
+## 1. 系统架构概览
+本项目采用纯净的前后端分离架构，通过 RESTful API 及 SSE 流式接口进行通信：
+*   **前端端 (Client)**：Vue 3 + Vite + Element Plus/Vant + Echarts
+*   **后端服务端 (Server)**：Golang 1.20+ + Web 框架 (Gin/Go-Zero) + GORM
+*   **持久化与缓存**：MySQL 8.0 (持久化存储) + Redis (用于空间高并发锁控制和鉴权 Token 存储)
+*   **AI 引擎**：集成第三方大语言模型 (如 ChatGPT, 阿里通义千问, 智谱 API)，进行自然语言处理与分析。
+
+---
+
+## 2. 核心难点方案设计：AI 智能财务报告模块
+
+此模块是系统的核心亮点，涉及大模型的上下文拼接、流式输出传输、持久化存储和前端渲染。
+
+### 2.1 报告生成时机 (Triggering Timing)
+
+为了兼顾系统性能与用户体验，报告生成采取**“双轨制”**：
+
+1.  **异步周期性生成 (Cron Scheduler)**
+    *   **适用场景**：月报、年报。
+    *   **技术实现**：后端利用 Go 的 `robfig/cron/v3` 模块，在业务低谷期（如凌晨 3 点）自动拉取配置了月报订阅的 `space_id` 数据，调用 AI 接口异步生成报告并存入 `financial_reports` 表中。
+2.  **前端按需生成 (On-Demand Request)**
+    *   **适用场景**：自定义日期范围诊断、超支诊断。
+    *   **技术实现**：通过前端主动调用 `/api/report/generate` 接口。为解决 AI 接口的高延迟（TFB-首字返回时间长）问题，该接口必须采用采用 `text/event-stream` (SSE 流式响应)。
+
+### 2.2 数据拼装与存储策略 (Storage & Prompt)
+
+**原则：数据可视化靠 SQL 统计计算（保障精确），分析建议靠 AI（产生灵感），二者分离存储。**
+
+*   **步骤一 (SQL 汇总)**：后端使用 SQL 聚合这一个月的总支出、总收入、分类占比。
+*   **步骤二 (存 JSON)**：这部分准确结果存入 `financial_reports` 的 `chart_data` 字段。
+*   **步骤三 (构建 Prompt)**：后端构建 prompt，例如：
+    > ”作为一名专业的财务规划师，请根据用户的这份账单数据：餐饮1500元(48%)、娱乐800元(25%)... 给出一份不少于 300 字的理财建议。请使用 Markdown 格式返回，标题加粗，多使用列表。“
+*   **步骤四 (存 Text)**：将大模型返回的文本，存入 `ai_content` 字段。
+
+### 2.3 前端展示技术实现 (Frontend Display)
+
+1.  **可视化展示层**：使用 `Echarts`，通过解析请求返回的 `chart_data` (JSON)，由前端动态生成双数据维度的环形图与折线趋势图。
+2.  **富文本渲染层**：对于 AI 内容，在前端引入 `markdown-it` 或 `v-md-editor`。利用组件自带的美化样式，直接渲染 `ai_content` 文本。
+3.  **SSE 打字机效果**：在要求“即时生成”的界面，前端使用 原生 `fetch()` 并获取 `ReadableStream` 进行流式解码：
+    ```javascript
+    // 伪代码示例
+    const response = await fetch('/api/report/generate-stream');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      // 拼接到响应式变量，触发视图按字更新
+      aiContentText.value += chunk; 
+    }
+    ```
+
+---
+
+## 3. 核心 API 接口设计参考 (API Definitions)
+
+### 3.1 获取最新报告 `/api/v1/spaces/:id/reports/latest` (GET)
+*   **用途**：获取周期任务生成的报告进行展示。
+*   **返回结构**：
+    ```json
+    {
+      "code": 200,
+      "data": {
+        "report_id": 102,
+        "report_type": "monthly",
+        "chart_data": {"expenses": [{"name": "餐饮", "amount": 1500}]},
+        "ai_content": "### 本月消费总结\n\n您本月的消费主力在**餐饮**领域..."
+      }
+    }
+    ```
+
+### 3.2 发起流式 AI 分析 `/api/v1/spaces/:id/reports/analyze` (POST)
+*   **用途**：实时打字生成。
+*   **Header**：`Accept: text/event-stream`
+*   **Payload**：`{"start_date": "...", "end_date": "..."}`
+*   **行为**：连接建立后，后端不断向前端 push 纯文本数据流，结束时断开链接。
