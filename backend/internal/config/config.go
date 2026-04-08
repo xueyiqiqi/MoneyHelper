@@ -15,7 +15,14 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path string
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
+	// SQLite 兼容模式（开发用）
+	UseSQLite bool
+	Path      string
 }
 
 type AIConfig struct {
@@ -23,12 +30,19 @@ type AIConfig struct {
 }
 
 func Load() *Config {
+	useSQLite := getEnv("USE_SQLITE", "false") == "true"
 	return &Config{
 		Server: ServerConfig{
 			Port: getEnv("SERVER_PORT", "8080"),
 		},
 		Database: DatabaseConfig{
-			Path: getEnv("DATABASE_PATH", "./database.db"),
+			Host:      getEnv("DB_HOST", "localhost"),
+			Port:      getEnv("DB_PORT", "3306"),
+			User:      getEnv("DB_USER", "root"),
+			Password:  getEnv("DB_PASSWORD", ""),
+			Database:  getEnv("DB_NAME", "financial_assistant"),
+			UseSQLite: useSQLite,
+			Path:      getEnv("DATABASE_PATH", "./database.db"),
 		},
 		AI: AIConfig{
 			APIKey: getEnv("AI_API_KEY", ""),

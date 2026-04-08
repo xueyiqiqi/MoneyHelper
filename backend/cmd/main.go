@@ -20,7 +20,7 @@ func main() {
 	cfg := config.Load()
 
 	// Initialize Database
-	repository.InitDB(cfg.Database.Path)
+	repository.InitDB(cfg.Database)
 
 	// Initialize Repositories
 	userRepo := &repository.UserRepository{}
