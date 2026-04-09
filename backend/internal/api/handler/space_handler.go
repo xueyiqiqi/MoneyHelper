@@ -3,6 +3,7 @@ package handler
 import (
 	"life-financial-assistant-backend/internal/service"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,4 +45,49 @@ func (h *SpaceHandler) GetUserSpaces(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, spaces)
+}
+
+type AddMemberRequest struct {
+	Username string `json:"username" binding:"required"`
+	Role     string `json:"role" binding:"required"`
+}
+
+func (h *SpaceHandler) AddMember(c *gin.Context) {
+	var input AddMemberRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	spaceIDStr := c.Param("id")
+	spaceID, err := strconv.ParseUint(spaceIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid space id"})
+		return
+	}
+
+	if err := h.SpaceService.AddMember(uint(spaceID), input.Username, input.Role); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "member added successfully"})
+}
+
+func (h *SpaceHandler) LeaveSpace(c *gin.Context) {
+	spaceIDStr := c.Param("id")
+	spaceID, err := strconv.ParseUint(spaceIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid space id"})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+
+	if err := h.SpaceService.LeaveSpace(uint(spaceID), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "left space successfully"})
 }
