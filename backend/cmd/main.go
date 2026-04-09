@@ -22,6 +22,13 @@ func main() {
 	// Initialize Database
 	repository.InitDB(cfg.Database)
 
+	// 初始化权限服务
+	permissionService := service.NewPermissionService(repository.DB)
+	middleware.SetPermissionService(permissionService)
+
+	// Initialize Redis
+	repository.InitRedis(cfg.Redis.Addr)
+
 	// Initialize Repositories
 	userRepo := &repository.UserRepository{}
 	spaceRepo := &repository.SpaceRepository{}
@@ -29,8 +36,11 @@ func main() {
 	reportRepo := &repository.ReportRepository{}
 
 	// Initialize Services
-	authService := &service.AuthService{UserRepo: userRepo}
-	spaceService := &service.SpaceService{SpaceRepo: spaceRepo}
+	authService := service.NewAuthService(userRepo, cfg.JWT.Secret)
+	spaceService := &service.SpaceService{SpaceRepo: spaceRepo, UserRepo: userRepo}
+
+	// Set JWT secret for middleware
+	middleware.SetJWTSecret(cfg.JWT.Secret)
 
 	// AIAgent
 	aiAgent := &ai.AIAgent{APIKey: cfg.AI.APIKey}
@@ -55,6 +65,7 @@ func main() {
 	// Auth routes
 	r.POST("/register", authHandler.Register)
 	r.POST("/token", authHandler.Login)
+	r.POST("/refresh", authHandler.RefreshToken)
 
 	// Protected routes
 	auth := r.Group("/")
@@ -63,10 +74,12 @@ func main() {
 		// Space routes
 		auth.POST("/spaces", spaceHandler.CreateSpace)
 		auth.GET("/spaces", spaceHandler.GetUserSpaces)
+		auth.POST("/spaces/:id/members", middleware.PermissionMiddleware("space", "admin"), spaceHandler.AddMember)
+		auth.POST("/spaces/:id/leave", spaceHandler.LeaveSpace)
 
 		// Bill routes
-		auth.POST("/bills", billHandler.CreateBill)
-		auth.GET("/bills", billHandler.GetBills)
+		auth.POST("/bills", middleware.PermissionMiddleware("bill", "write"), billHandler.CreateBill)
+		auth.GET("/bills", middleware.PermissionMiddleware("bill", "read"), billHandler.GetBills)
 
 		// AI Analysis routes
 		auth.POST("/analyze", billHandler.GenerateAnalysis)
