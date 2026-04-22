@@ -2,13 +2,20 @@ package middleware
 
 import (
 	"fmt"
-	"life-financial-assistant-backend/internal/service"
 	"net/http"
 	"strings"
+
+	"life-financial-assistant-backend/internal/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+var JWTSecret []byte
+
+func SetJWTSecret(secret string) {
+	JWTSecret = []byte(secret)
+}
 
 func JWTMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -27,11 +34,19 @@ func JWTMiddleware() gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
+
+		isBlacklisted, err := repository.IsTokenBlacklisted(c.Request.Context(), tokenString)
+		if err == nil && isBlacklisted {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has been revoked"})
+			c.Abort()
+			return
+		}
+
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
-			return service.SecretKey, nil
+			return JWTSecret, nil
 		})
 
 		if err != nil || !token.Valid {
@@ -54,6 +69,17 @@ func JWTMiddleware() gin.HandlerFunc {
 			return
 		}
 		userID := uint(userIDFloat)
+
+		iatFloat, ok := claims["iat"].(float64)
+		if ok {
+			invTime, err := repository.GetUserInvalidationTime(c.Request.Context(), userID)
+			if err == nil && invTime > 0 && int64(iatFloat) < invTime {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Token invalidated due to role change"})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("user_id", userID)
 		c.Next()
 	}

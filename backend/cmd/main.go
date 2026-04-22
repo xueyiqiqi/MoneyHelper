@@ -13,38 +13,24 @@ import (
 )
 
 func main() {
-	// Initialize logger
 	logger.Init()
-
-	// Load configuration
 	cfg := config.Load()
 
-	// Initialize Database
 	repository.InitDB(cfg.Database)
-
-	// 初始化权限服务
 	permissionService := service.NewPermissionService(repository.DB)
 	middleware.SetPermissionService(permissionService)
-
-	// Initialize Redis
 	repository.InitRedis(cfg.Redis.Addr)
 
-	// Initialize Repositories
 	userRepo := &repository.UserRepository{}
 	spaceRepo := &repository.SpaceRepository{}
 	billRepo := &repository.BillRepository{}
 	reportRepo := &repository.ReportRepository{}
 
-	// Initialize Services
 	authService := service.NewAuthService(userRepo, cfg.JWT.Secret)
 	spaceService := &service.SpaceService{SpaceRepo: spaceRepo, UserRepo: userRepo}
-
-	// Set JWT secret for middleware
 	middleware.SetJWTSecret(cfg.JWT.Secret)
 
-	// AIAgent
 	aiAgent := &ai.AIAgent{APIKey: cfg.AI.APIKey}
-
 	billService := &service.BillService{
 		BillRepo:   billRepo,
 		SpaceRepo:  spaceRepo,
@@ -52,7 +38,6 @@ func main() {
 		AIAgent:    aiAgent,
 	}
 
-	// Initialize Handlers
 	authHandler := &handler.AuthHandler{AuthService: authService}
 	spaceHandler := &handler.SpaceHandler{SpaceService: spaceService}
 	billHandler := &handler.BillHandler{BillService: billService}
@@ -62,34 +47,36 @@ func main() {
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(middleware.CORSMiddleware())
 
-	// Auth routes
-	r.POST("/register", authHandler.Register)
-	r.POST("/token", authHandler.Login)
-	r.POST("/refresh", authHandler.RefreshToken)
-
-	// Protected routes
-	auth := r.Group("/")
-	auth.Use(middleware.JWTMiddleware())
+	v1 := r.Group("/api/v1")
 	{
-		// Space routes
-		auth.POST("/spaces", spaceHandler.CreateSpace)
-		auth.GET("/spaces", spaceHandler.GetUserSpaces)
-		auth.POST("/spaces/:id/members", middleware.PermissionMiddleware("space", "admin"), spaceHandler.AddMember)
-		auth.POST("/spaces/:id/leave", spaceHandler.LeaveSpace)
+		v1.POST("/register", authHandler.Register)
+		v1.POST("/token", authHandler.Login)
+		v1.POST("/refresh", authHandler.RefreshToken)
 
-		// Bill routes
-		auth.POST("/bills", middleware.PermissionMiddleware("bill", "write"), billHandler.CreateBill)
-		auth.GET("/bills", middleware.PermissionMiddleware("bill", "read"), billHandler.GetBills)
+		auth := v1.Group("/")
+		auth.Use(middleware.JWTMiddleware())
+		{
+			auth.POST("/logout", authHandler.Logout)
+			auth.POST("/spaces", spaceHandler.CreateSpace)
+			auth.GET("/spaces", spaceHandler.GetUserSpaces)
+			auth.POST("/spaces/:id/members", middleware.PermissionMiddleware("space", "admin"), spaceHandler.AddMember)
+			auth.GET("/spaces/:id/members", middleware.PermissionMiddleware("space", "read"), spaceHandler.GetMembers)
+			auth.PUT("/spaces/:id/members/:userId", middleware.PermissionMiddleware("space", "admin"), spaceHandler.UpdateMemberRole)
+			auth.DELETE("/spaces/:id/members/:userId", middleware.PermissionMiddleware("space", "admin"), spaceHandler.RemoveMember)
+			auth.POST("/spaces/:id/leave", spaceHandler.LeaveSpace)
 
-		// AI Analysis routes
-		auth.POST("/analyze", billHandler.GenerateAnalysis)
-		auth.GET("/reports", billHandler.GetReports)
+			auth.POST("/bills", middleware.PermissionMiddleware("bill", "write"), billHandler.CreateBill)
+			auth.GET("/bills", middleware.PermissionMiddleware("bill", "read"), billHandler.GetBills)
+			auth.GET("/bills/:id", middleware.BillPermissionMiddleware("read"), billHandler.GetBill)
+			auth.PUT("/bills/:id", middleware.BillPermissionMiddleware("write"), billHandler.UpdateBill)
+
+			auth.POST("/analyze", middleware.PermissionMiddleware("bill", "read"), billHandler.GenerateAnalysis)
+			auth.GET("/reports", middleware.PermissionMiddleware("bill", "read"), billHandler.GetReports)
+		}
 	}
 
 	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "pong",
-		})
+		c.JSON(200, gin.H{"message": "pong"})
 	})
 
 	logger.Info.Printf("Server starting on :%s...", cfg.Server.Port)

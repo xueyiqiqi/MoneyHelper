@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"life-financial-assistant-backend/internal/model"
 	"life-financial-assistant-backend/internal/repository"
@@ -10,12 +12,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var (
-	SecretKey = []byte("your-secret-key")
-)
-
 type AuthService struct {
-	UserRepo *repository.UserRepository
+	UserRepo  *repository.UserRepository
+	SecretKey []byte
+}
+
+func NewAuthService(userRepo *repository.UserRepository, secretKey string) *AuthService {
+	return &AuthService{
+		UserRepo:  userRepo,
+		SecretKey: []byte(secretKey),
+	}
 }
 
 func (s *AuthService) Register(username, password, email string) error {
@@ -33,22 +39,87 @@ func (s *AuthService) Register(username, password, email string) error {
 	return s.UserRepo.Create(user)
 }
 
-func (s *AuthService) Login(username, password string) (string, error) {
+func (s *AuthService) Login(username, password string) (string, string, error) {
 	user, err := s.UserRepo.GetByUsername(username)
 	if err != nil {
-		return "", errors.New("invalid username or password")
+		return "", "", errors.New("user not found")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(password))
 	if err != nil {
-		return "", errors.New("invalid username or password")
+		return "", "", errors.New("password mismatch")
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	return s.generateTokens(user)
+}
+
+func hashRefreshToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *AuthService) generateTokens(user *model.User) (string, string, error) {
+	accessClaim := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":  user.ID,
 		"username": user.Username,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+		"exp":      time.Now().Add(time.Minute * 15).Unix(),
+		"type":     "access",
+	})
+	accessToken, err := accessClaim.SignedString(s.SecretKey)
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshClaim := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":  user.ID,
+		"username": user.Username,
+		"exp":      time.Now().Add(time.Hour * 24 * 7).Unix(),
+		"type":     "refresh",
+	})
+	refreshToken, err := refreshClaim.SignedString(s.SecretKey)
+	if err != nil {
+		return "", "", err
+	}
+
+	err = s.UserRepo.UpdateRefreshToken(user.ID, hashRefreshToken(refreshToken))
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+func (s *AuthService) RefreshToken(refreshToken string) (string, string, error) {
+	token, err := jwt.Parse(refreshToken, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return s.SecretKey, nil
 	})
 
-	return token.SignedString(SecretKey)
+	if err != nil || !token.Valid {
+		return "", "", errors.New("invalid refresh token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["type"] != "refresh" {
+		return "", "", errors.New("invalid token type")
+	}
+
+	userID := uint(claims["user_id"].(float64))
+
+	user, err := s.UserRepo.GetByID(userID)
+	if err != nil {
+		return "", "", errors.New("user not found")
+	}
+
+	if user.HashedRefreshToken == "" || user.HashedRefreshToken != hashRefreshToken(refreshToken) {
+		return "", "", errors.New("refresh token revoked or invalid")
+	}
+
+	return s.generateTokens(user)
+}
+
+func (s *AuthService) Logout(userID uint) error {
+	return s.UserRepo.ClearRefreshToken(userID)
 }

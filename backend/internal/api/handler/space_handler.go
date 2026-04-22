@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"life-financial-assistant-backend/internal/error"
+	"life-financial-assistant-backend/internal/model"
 	"life-financial-assistant-backend/internal/service"
 	"net/http"
 	"strconv"
@@ -48,8 +50,8 @@ func (h *SpaceHandler) GetUserSpaces(c *gin.Context) {
 }
 
 type AddMemberRequest struct {
-	Username string `json:"username" binding:"required"`
-	Role     string `json:"role" binding:"required"`
+	Email string `json:"email" binding:"required,email"`
+	Role  string `json:"role" binding:"required"`
 }
 
 func (h *SpaceHandler) AddMember(c *gin.Context) {
@@ -66,12 +68,74 @@ func (h *SpaceHandler) AddMember(c *gin.Context) {
 		return
 	}
 
-	if err := h.SpaceService.AddMember(uint(spaceID), input.Username, input.Role); err != nil {
+	if err := h.SpaceService.AddMember(uint(spaceID), input.Email, input.Role); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "member added successfully"})
+}
+
+type UpdateMemberRoleRequest struct {
+	Role string `json:"role" binding:"required"`
+}
+
+func (h *SpaceHandler) UpdateMemberRole(c *gin.Context) {
+	var input UpdateMemberRoleRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	spaceID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid space id"})
+		return
+	}
+
+	targetUserID, err := strconv.ParseUint(c.Param("userId"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	operatorID := c.GetUint("user_id")
+	if err := h.SpaceService.UpdateMemberRole(operatorID, uint(spaceID), uint(targetUserID), model.Role(input.Role)); err != nil {
+		if appErr, ok := err.(*error.AppError); ok {
+			error.RespondError(c, appErr)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "member role updated successfully"})
+}
+
+func (h *SpaceHandler) RemoveMember(c *gin.Context) {
+	spaceID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid space id"})
+		return
+	}
+
+	targetUserID, err := strconv.ParseUint(c.Param("userId"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	operatorID := c.GetUint("user_id")
+	if err := h.SpaceService.RemoveMember(operatorID, uint(spaceID), uint(targetUserID)); err != nil {
+		if appErr, ok := err.(*error.AppError); ok {
+			error.RespondError(c, appErr)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "member removed successfully"})
 }
 
 func (h *SpaceHandler) LeaveSpace(c *gin.Context) {
@@ -90,4 +154,21 @@ func (h *SpaceHandler) LeaveSpace(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "left space successfully"})
+}
+
+func (h *SpaceHandler) GetMembers(c *gin.Context) {
+	spaceIDStr := c.Param("id")
+	spaceID, err := strconv.ParseUint(spaceIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid space id"})
+		return
+	}
+
+	members, err := h.SpaceService.GetMembers(uint(spaceID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"members": members})
 }

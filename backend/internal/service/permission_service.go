@@ -3,7 +3,7 @@ package service
 import (
 	"log"
 
-	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v3"
 	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"gorm.io/gorm"
 )
@@ -13,8 +13,12 @@ type PermissionService struct {
 }
 
 func NewPermissionService(db *gorm.DB) *PermissionService {
-	adapter := gormadapter.NewAdapterByDB(db)
+	adapter, err := gormadapter.NewAdapterByDB(db)
+	if err != nil {
+		log.Fatalf("Failed to create adapter: %v", err)
+	}
 
+	// 创建 enforcer (使用 v3，完美兼容 gorm-adapter/v3)
 	e, err := casbin.NewEnforcer("config/rbac_model.conf", adapter)
 	if err != nil {
 		log.Fatalf("Failed to create enforcer: %v", err)
@@ -34,17 +38,16 @@ func NewPermissionService(db *gorm.DB) *PermissionService {
 
 func initPolicies(e *casbin.Enforcer) {
 	policies := [][]string{
-		// creator 可以对账单进行所有操作
-		{"creator", "bill", "read"},
-		{"creator", "bill", "write"},
-		{"creator", "bill", "delete"},
+		// creator 可以对空间进行管理和读取
 		{"creator", "space", "admin"},
+		{"creator", "space", "read"},
 
 		// admin 可以对账单进行所有操作
 		{"admin", "bill", "read"},
 		{"admin", "bill", "write"},
 		{"admin", "bill", "delete"},
 		{"admin", "space", "admin"},
+		{"admin", "space", "read"},
 
 		// member 可以读写账单
 		{"member", "bill", "read"},
@@ -65,5 +68,10 @@ func initPolicies(e *casbin.Enforcer) {
 
 // CheckPermission 检查角色是否有权限执行操作
 func (s *PermissionService) CheckPermission(role, object, action string) bool {
-	return s.Enforcer.HasPermission(role, object, action)
+	ok, err := s.Enforcer.Enforce(role, object, action)
+	if err != nil {
+		log.Printf("Enforce error: %v", err)
+		return false
+	}
+	return ok
 }

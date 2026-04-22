@@ -29,6 +29,14 @@ func NewInternalError(msg string) *AppError {
 	return &AppError{Code: 500, Message: msg}
 }
 
+func NewForbiddenError(msg string) *AppError {
+	return &AppError{Code: 403, Message: msg}
+}
+
+func NewConflictError(msg string) *AppError {
+	return &AppError{Code: 409, Message: msg}
+}
+
 func RespondError(c *gin.Context, err *AppError) {
 	c.JSON(err.Code, gin.H{"error": err.Message, "code": err.Code})
 }

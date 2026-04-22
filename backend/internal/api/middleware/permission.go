@@ -6,16 +6,15 @@ import (
 
 	"life-financial-assistant-backend/internal/model"
 	"life-financial-assistant-backend/internal/repository"
+	"life-financial-assistant-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-var PermissionService interface {
-	CheckPermission(role, object, action string) bool
-}
+var permissionService *service.PermissionService
 
-func SetPermissionService(ps interface{}) {
-	PermissionService = ps
+func SetPermissionService(ps *service.PermissionService) {
+	permissionService = ps
 }
 
 // PermissionMiddleware 创建权限检查中间件
@@ -23,7 +22,6 @@ func PermissionMiddleware(object, action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetUint("user_id")
 
-		// 从请求参数或上下文获取 space_id
 		spaceIDStr := c.Param("id")
 		if spaceIDStr == "" {
 			spaceIDStr = c.Query("space_id")
@@ -40,7 +38,6 @@ func PermissionMiddleware(object, action string) gin.HandlerFunc {
 			spaceID = uint(id)
 		}
 
-		// 获取用户在空间的角色
 		var role model.Role
 		if spaceID > 0 {
 			var link model.SpaceUserLink
@@ -48,18 +45,70 @@ func PermissionMiddleware(object, action string) gin.HandlerFunc {
 				Where("user_id = ? AND space_id = ?", userID, spaceID).
 				First(&link).Error
 			if err != nil {
-				// 个人账单不需要 space_id，默认为 member
-				role = model.RoleMember
-			} else {
-				role = link.Role
+				c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+				c.Abort()
+				return
 			}
+			role = link.Role
 		} else {
-			// 没有 space_id 时，默认给 member 权限
 			role = model.RoleMember
 		}
 
-		// 检查权限
-		if !PermissionService.CheckPermission(string(role), object, action) {
+		if !permissionService.CheckPermission(string(role), object, action) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func BillPermissionMiddleware(action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		billIDStr := c.Param("id")
+		billID, err := strconv.ParseUint(billIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid bill id"})
+			c.Abort()
+			return
+		}
+
+		bill, err := repository.BillAccessRepository{}.GetByID(uint(billID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "bill not found"})
+			c.Abort()
+			return
+		}
+
+		if bill.IsPersonal {
+			if bill.UserID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
+
+		if bill.SpaceID == nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			c.Abort()
+			return
+		}
+
+		var link model.SpaceUserLink
+		err = repository.DB.
+			Where("user_id = ? AND space_id = ?", userID, *bill.SpaceID).
+			First(&link).Error
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			c.Abort()
+			return
+		}
+
+		if !permissionService.CheckPermission(string(link.Role), "bill", action) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 			c.Abort()
 			return

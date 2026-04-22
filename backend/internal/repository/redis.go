@@ -13,7 +13,10 @@ var RDB *redis.Client
 
 func InitRedis(addr string) {
 	RDB = redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:         addr,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
 	})
 }
 

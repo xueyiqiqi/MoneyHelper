@@ -1,6 +1,7 @@
 package service
 
 import (
+	apperror "life-financial-assistant-backend/internal/error"
 	"life-financial-assistant-backend/internal/model"
 	"life-financial-assistant-backend/internal/repository"
 	"life-financial-assistant-backend/pkg/ai"
@@ -14,10 +15,16 @@ type BillService struct {
 	AIAgent    *ai.AIAgent
 }
 
-func (s *BillService) CreateBill(userID uint, amount float64, category, remarks string, isPersonal bool, spaceID *uint) (*model.Bill, error) {
+func (s *BillService) CreateBill(userID uint, amount float64, category, billType, remarks string, isPersonal bool, spaceID *uint) (*model.Bill, error) {
+	// 如果是支出，金额存储为负数
+	if billType == "expense" {
+		amount = -amount
+	}
+
 	bill := &model.Bill{
 		Amount:     amount,
 		Category:   category,
+		Type:       billType,
 		Remarks:    remarks,
 		Date:       time.Now(),
 		IsPersonal: isPersonal,
@@ -28,18 +35,55 @@ func (s *BillService) CreateBill(userID uint, amount float64, category, remarks 
 	return bill, s.BillRepo.Create(bill)
 }
 
-func (s *BillService) GetUserBills(userID uint, isPersonal bool, spaceID *uint) ([]model.Bill, error) {
+func (s *BillService) GetUserBills(userID uint, isPersonal bool, spaceID *uint, billType, category, startDate, endDate string) ([]model.Bill, error) {
 	if isPersonal {
-		return s.BillRepo.GetPersonalBills(userID)
+		return s.BillRepo.GetPersonalBills(userID, billType, category, startDate, endDate)
 	}
 	if spaceID != nil {
-		return s.BillRepo.GetSpaceBills(*spaceID)
+		return s.BillRepo.GetSpaceBills(*spaceID, billType, category, startDate, endDate)
 	}
-	return s.BillRepo.GetSharedBills(userID)
+	return s.BillRepo.GetSharedBills(userID, billType, category, startDate, endDate)
+}
+
+func (s *BillService) GetBillByID(userID, id uint) (*model.Bill, error) {
+	bill, err := s.BillRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if bill.IsPersonal {
+		if bill.UserID != userID {
+			return nil, apperror.NewForbiddenError("permission denied")
+		}
+		return bill, nil
+	}
+
+	if bill.SpaceID == nil {
+		return nil, apperror.NewForbiddenError("permission denied")
+	}
+
+	_, err = s.SpaceRepo.GetUserRoleInSpace(userID, *bill.SpaceID)
+	if err != nil {
+		return nil, apperror.NewForbiddenError("permission denied")
+	}
+
+	return bill, nil
+}
+
+func (s *BillService) UpdateBill(userID uint, id uint, amount float64, category, billType, remarks string, isPersonal bool, spaceID *uint) (*model.Bill, error) {
+	if _, err := s.GetBillByID(userID, id); err != nil {
+		return nil, err
+	}
+
+	if billType == "expense" {
+		amount = -amount
+	}
+
+	return s.BillRepo.Update(id, amount, category, billType, remarks)
 }
 
 func (s *BillService) GenerateAnalysis(userID uint, isPersonal bool, spaceID *uint) (*model.AnalysisReport, error) {
-	bills, err := s.GetUserBills(userID, isPersonal, spaceID)
+	bills, err := s.GetUserBills(userID, isPersonal, spaceID, "", "", "", "")
 	if err != nil {
 		return nil, err
 	}
