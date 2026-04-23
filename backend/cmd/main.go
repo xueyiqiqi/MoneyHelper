@@ -30,7 +30,12 @@ func main() {
 	spaceService := &service.SpaceService{SpaceRepo: spaceRepo, UserRepo: userRepo}
 	middleware.SetJWTSecret(cfg.JWT.Secret)
 
-	aiAgent := &ai.AIAgent{APIKey: cfg.AI.APIKey}
+	aiAgent := ai.NewAIAgent(ai.Config{
+		BaseURL:        cfg.AI.BaseURL,
+		APIKey:         cfg.AI.APIKey,
+		Model:          cfg.AI.Model,
+		TimeoutSeconds: cfg.AI.TimeoutSeconds,
+	})
 	billService := &service.BillService{
 		BillRepo:   billRepo,
 		SpaceRepo:  spaceRepo,

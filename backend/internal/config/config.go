@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -25,7 +26,10 @@ type DatabaseConfig struct {
 }
 
 type AIConfig struct {
-	APIKey string
+	BaseURL        string
+	APIKey         string
+	Model          string
+	TimeoutSeconds int
 }
 
 type RedisConfig struct {
@@ -49,7 +53,10 @@ func Load() *Config {
 			Database: getEnv("DB_NAME", "financial_assistant"),
 		},
 		AI: AIConfig{
-			APIKey: getEnv("AI_API_KEY", ""),
+			BaseURL:        getEnv("AI_BASE_URL", ""),
+			APIKey:         getEnv("AI_API_KEY", ""),
+			Model:          getEnv("AI_MODEL", "claude-3-5-sonnet-20241022"),
+			TimeoutSeconds: getEnvAsInt("AI_TIMEOUT_SECONDS", 30),
 		},
 		Redis: RedisConfig{
 			Addr: getEnv("REDIS_ADDR", "localhost:6379"),
@@ -63,6 +70,16 @@ func Load() *Config {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvAsInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err == nil {
+			return parsed
+		}
 	}
 	return defaultValue
 }
