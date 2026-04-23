@@ -47,6 +47,8 @@ func (h *BillHandler) GetBills(c *gin.Context) {
 	spaceIDStr := c.Query("space_id")
 	billType := c.Query("type")
 	category := c.Query("category")
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
 
 	var spaceID *uint
 	if spaceIDStr != "" {
@@ -57,7 +59,7 @@ func (h *BillHandler) GetBills(c *gin.Context) {
 		}
 	}
 
-	bills, err := h.BillService.GetUserBills(userID, isPersonal, spaceID, billType, category)
+	bills, err := h.BillService.GetUserBills(userID, isPersonal, spaceID, billType, category, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
