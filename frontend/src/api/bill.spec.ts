@@ -17,19 +17,21 @@ describe('billApi analysis report requests', () => {
     clientMock.post.mockReset()
   })
 
-  it('posts personal analysis requests with explicit is_personal=true', async () => {
+  it('posts personal analysis requests with explicit date range params', async () => {
     clientMock.post.mockResolvedValue({ data: {} })
 
     await billApi.analyze({
-      period: 'monthly',
       isPersonal: true,
       spaceId: undefined,
+      startDate: '2026-04-01',
+      endDate: '2026-04-30',
     })
 
     expect(clientMock.post).toHaveBeenCalledWith('/analyze', {
       space_id: undefined,
-      period: 'monthly',
       is_personal: true,
+      start_date: '2026-04-01',
+      end_date: '2026-04-30',
     })
   })
 

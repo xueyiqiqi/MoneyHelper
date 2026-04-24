@@ -7,7 +7,8 @@ type ReportScopeParams = {
 }
 
 type AnalyzeParams = ReportScopeParams & {
-  period?: string
+  startDate: string
+  endDate: string
 }
 
 export const billApi = {
@@ -44,11 +45,12 @@ export const billApi = {
     return client.delete(`/bills/${id}`)
   },
 
-  analyze({ spaceId, period = 'monthly', isPersonal }: AnalyzeParams) {
+  analyze({ spaceId, isPersonal, startDate, endDate }: AnalyzeParams) {
     return client.post('/analyze', {
       space_id: spaceId,
-      period,
       is_personal: isPersonal,
+      start_date: startDate,
+      end_date: endDate,
     })
   },
 

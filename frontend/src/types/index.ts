@@ -40,8 +40,9 @@ export interface AnalysisReport {
   id: number
   space_id?: number
   user_id: number
-  period: 'daily' | 'weekly' | 'monthly'
   content: string
+  period_start?: string
+  period_end?: string
   created_at: string
 }
 
