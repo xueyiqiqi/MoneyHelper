@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+
 	"life-financial-assistant-backend/internal/api/handler"
 	"life-financial-assistant-backend/internal/api/middleware"
 	"life-financial-assistant-backend/internal/config"
@@ -14,6 +16,7 @@ import (
 
 func main() {
 	logger.Init()
+	_ = config.LoadEnvFileIfPresent(filepath.Join(".", ".env"))
 	cfg := config.Load()
 
 	repository.InitDB(cfg.Database)

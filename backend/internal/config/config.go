@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -38,6 +40,17 @@ type RedisConfig struct {
 
 type JWTConfig struct {
 	Secret string
+}
+
+func LoadEnvFileIfPresent(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	return godotenv.Load(path)
 }
 
 func Load() *Config {
