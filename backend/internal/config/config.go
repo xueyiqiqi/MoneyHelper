@@ -53,7 +53,7 @@ func Load() *Config {
 			Database: getEnv("DB_NAME", "financial_assistant"),
 		},
 		AI: AIConfig{
-			BaseURL:        getEnv("AI_BASE_URL", ""),
+			BaseURL:        getEnv("AI_BASE_URL", "https://tianjiajie.xin"),
 			APIKey:         getEnv("AI_API_KEY", ""),
 			Model:          getEnv("AI_MODEL", "claude-3-5-sonnet-20241022"),
 			TimeoutSeconds: getEnvAsInt("AI_TIMEOUT_SECONDS", 30),
