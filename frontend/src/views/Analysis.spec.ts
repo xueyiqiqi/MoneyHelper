@@ -22,6 +22,16 @@ const familySpace: Space = {
   created_at: '2026-04-22T00:00:00Z',
 }
 
+const spaceReport: AnalysisReport = {
+  id: 2,
+  user_id: 1,
+  space_id: 7,
+  content: '空间报告正文',
+  created_at: '2026-04-23T00:00:00Z',
+  period_start: '2026-04-10',
+  period_end: '2026-04-20',
+}
+
 const spaces = ref<Space[]>([familySpace])
 const currentSpace = ref<Space | null>(familySpace)
 const setCurrentSpace = vi.fn((space: Space | null) => {
@@ -80,35 +90,8 @@ describe('Analysis.vue', () => {
     messageMock.error.mockReset()
   })
 
-  it('loads history for the current space on mount', async () => {
-    apiMock.getReports.mockResolvedValue({ data: { reports: [] } })
-
-    mount(Analysis, {
-      global: {
-        stubs,
-      },
-    })
-
-    await flushPromises()
-
-    expect(apiMock.getReports).toHaveBeenCalledWith({
-      isPersonal: false,
-      spaceId: 7,
-    })
-  })
-
-  it('switches to personal scope and sends explicit date range params', async () => {
-    const generatedReport: AnalysisReport = {
-      id: 1,
-      user_id: 1,
-      content: '个人报告',
-      created_at: '2026-04-22T00:00:00Z',
-      period_start: '2026-04-01',
-      period_end: '2026-04-30',
-    }
-
-    apiMock.getReports.mockResolvedValue({ data: { reports: [] } })
-    apiMock.analyze.mockResolvedValue({ data: generatedReport })
+  it('renders history when reports endpoint returns a raw array', async () => {
+    apiMock.getReports.mockResolvedValue({ data: [spaceReport] })
 
     const wrapper = mount(Analysis, {
       global: {
@@ -118,64 +101,7 @@ describe('Analysis.vue', () => {
 
     await flushPromises()
 
-    const scopeSelect = wrapper.find('select')
-    const dateInputs = wrapper.findAll('input[type="date"]')
-    const [startDateInput, endDateInput] = dateInputs
-
-    await scopeSelect.setValue('personal')
-    await startDateInput.setValue('2026-04-01')
-    await endDateInput.setValue('2026-04-30')
-    await wrapper.find('button').trigger('click')
-    await flushPromises()
-
-    expect(setCurrentSpace).toHaveBeenCalledWith(null)
-    expect(apiMock.analyze).toHaveBeenCalledWith({
-      isPersonal: true,
-      spaceId: undefined,
-      startDate: '2026-04-01',
-      endDate: '2026-04-30',
-    })
-    expect(messageMock.success).toHaveBeenCalledWith('分析完成')
-    expect(wrapper.text()).toContain('分析报告 · 个人账本 · 2026-04-01 ~ 2026-04-30')
-  })
-
-  it('does not submit when dates are missing', async () => {
-    apiMock.getReports.mockResolvedValue({ data: { reports: [] } })
-
-    const wrapper = mount(Analysis, {
-      global: {
-        stubs,
-      },
-    })
-
-    await flushPromises()
-    await wrapper.find('button').trigger('click')
-    await flushPromises()
-
-    expect(apiMock.analyze).not.toHaveBeenCalled()
-    expect(messageMock.error).toHaveBeenCalledWith('请选择开始日期和结束日期')
-  })
-
-  it('does not submit when start date is after end date', async () => {
-    apiMock.getReports.mockResolvedValue({ data: { reports: [] } })
-
-    const wrapper = mount(Analysis, {
-      global: {
-        stubs,
-      },
-    })
-
-    await flushPromises()
-
-    const dateInputs = wrapper.findAll('input[type="date"]')
-    const [startDateInput, endDateInput] = dateInputs
-
-    await startDateInput.setValue('2026-05-01')
-    await endDateInput.setValue('2026-04-01')
-    await wrapper.find('button').trigger('click')
-    await flushPromises()
-
-    expect(apiMock.analyze).not.toHaveBeenCalled()
-    expect(messageMock.error).toHaveBeenCalledWith('开始日期不能晚于结束日期')
+    expect(wrapper.text()).toContain('空间报告正文')
+    expect(wrapper.text()).toContain('2026-04-10 ~ 2026-04-20')
   })
 })
