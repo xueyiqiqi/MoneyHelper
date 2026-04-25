@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"life-financial-assistant-backend/internal/logger"
 	"life-financial-assistant-backend/internal/model"
 	"net"
 	"net/http"
@@ -108,23 +109,45 @@ func (a *AIAgent) AnalyzeBills(bills []model.Bill, context string) (string, erro
 	response, err := a.HTTPClient.Do(request)
 	if err != nil {
 		if isTimeoutError(err) {
+			logger.Error.Printf("AI gateway request timed out url=%s/v1/messages model=%s err=%v", a.BaseURL, a.Model, err)
 			return "", errors.New("AI 服务请求超时")
 		}
+		logger.Error.Printf("AI gateway request failed url=%s/v1/messages model=%s err=%v", a.BaseURL, a.Model, err)
 		return "", errors.New("AI 服务连接失败")
 	}
 	defer response.Body.Close()
 
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return "", errors.New("AI 服务返回异常")
+	}
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.ReadAll(response.Body)
+		logger.Error.Printf(
+			"AI gateway returned non-2xx response url=%s/v1/messages model=%s status=%d body=%q",
+			a.BaseURL,
+			a.Model,
+			response.StatusCode,
+			previewResponseBody(body),
+		)
 		return "", errors.New("AI 服务返回异常")
 	}
 
 	var anthropicResponse anthropicMessageResponse
-	if err := json.NewDecoder(response.Body).Decode(&anthropicResponse); err != nil {
+	if err := json.Unmarshal(body, &anthropicResponse); err != nil {
+		logger.Error.Printf(
+			"AI gateway returned invalid JSON url=%s/v1/messages model=%s err=%v body=%q",
+			a.BaseURL,
+			a.Model,
+			err,
+			previewResponseBody(body),
+		)
 		return "", errors.New("AI 服务返回异常")
 	}
 
+	contentTypes := make([]string, 0, len(anthropicResponse.Content))
 	for _, block := range anthropicResponse.Content {
+		contentTypes = append(contentTypes, block.Type)
 		if block.Type == "text" {
 			text := strings.TrimSpace(block.Text)
 			if text != "" {
@@ -133,6 +156,13 @@ func (a *AIAgent) AnalyzeBills(bills []model.Bill, context string) (string, erro
 		}
 	}
 
+	logger.Error.Printf(
+		"AI gateway returned no text block url=%s/v1/messages model=%s content_count=%d content_types=%s",
+		a.BaseURL,
+		a.Model,
+		len(anthropicResponse.Content),
+		strings.Join(contentTypes, ","),
+	)
 	return "", errors.New("AI 服务返回异常")
 }
 
@@ -183,6 +213,17 @@ func (a *AIAgent) buildPrompt(bills []model.Bill, context string) string {
 		strings.Join(billLines, "\n"),
 		"请按以下结构输出：财务概览、主要消费分类、风险或异常提醒、简短建议。",
 	}, "\n")
+}
+
+func previewResponseBody(body []byte) string {
+	const maxLen = 300
+
+	preview := strings.TrimSpace(string(body))
+	preview = strings.Join(strings.Fields(preview), " ")
+	if len(preview) > maxLen {
+		return preview[:maxLen] + "..."
+	}
+	return preview
 }
 
 func isTimeoutError(err error) bool {

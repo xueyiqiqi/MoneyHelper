@@ -1,12 +1,15 @@
 package ai
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"life-financial-assistant-backend/internal/logger"
 	"life-financial-assistant-backend/internal/model"
 )
 
@@ -61,12 +64,19 @@ func TestAnalyzeBillsReturnsErrorWhenAPIKeyMissing(t *testing.T) {
 	}
 }
 
-func TestAnalyzeBillsReturnsGatewayErrorOnNon2xxResponse(t *testing.T) {
+func TestAnalyzeBillsLogsStatusCodeAndBodyPreviewOnNon2xxResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error":{"message":"upstream unavailable"}}`))
+		_, _ = w.Write([]byte(`{"error":{"message":"upstream unavailable for maintenance"}}`))
 	}))
 	defer server.Close()
+
+	var logBuffer bytes.Buffer
+	originalErrorLogger := logger.Error
+	logger.Error = log.New(&logBuffer, "[ERROR] ", 0)
+	t.Cleanup(func() {
+		logger.Error = originalErrorLogger
+	})
 
 	agent := NewAIAgent(Config{
 		BaseURL:        server.URL,
@@ -78,6 +88,57 @@ func TestAnalyzeBillsReturnsGatewayErrorOnNon2xxResponse(t *testing.T) {
 	_, err := agent.AnalyzeBills([]model.Bill{{Category: "food", Amount: -20}}, "personal")
 	if err == nil || err.Error() != "AI 服务返回异常" {
 		t.Fatalf("expected gateway error, got %v", err)
+	}
+
+	logged := logBuffer.String()
+	for _, expected := range []string{
+		"AI gateway returned non-2xx response",
+		"status=502",
+		"model=claude-3-5-sonnet-20241022",
+		"/v1/messages",
+		"upstream unavailable for maintenance",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("expected log to contain %q, got %s", expected, logged)
+		}
+	}
+}
+
+func TestAnalyzeBillsLogsDecodeFailureWithBodyPreview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not-json-response-from-upstream`))
+	}))
+	defer server.Close()
+
+	var logBuffer bytes.Buffer
+	originalErrorLogger := logger.Error
+	logger.Error = log.New(&logBuffer, "[ERROR] ", 0)
+	t.Cleanup(func() {
+		logger.Error = originalErrorLogger
+	})
+
+	agent := NewAIAgent(Config{
+		BaseURL:        server.URL,
+		APIKey:         "secret-token",
+		Model:          "claude-3-5-sonnet-20241022",
+		TimeoutSeconds: 30,
+	})
+
+	_, err := agent.AnalyzeBills([]model.Bill{{Category: "food", Amount: -20}}, "personal")
+	if err == nil || err.Error() != "AI 服务返回异常" {
+		t.Fatalf("expected decode failure error, got %v", err)
+	}
+
+	logged := logBuffer.String()
+	for _, expected := range []string{
+		"AI gateway returned invalid JSON",
+		"model=claude-3-5-sonnet-20241022",
+		"/v1/messages",
+		"not-json-response-from-upstream",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("expected log to contain %q, got %s", expected, logged)
+		}
 	}
 }
 
@@ -116,12 +177,57 @@ func TestAnalyzeBillsReturnsParsedTextFromAnthropicResponse(t *testing.T) {
 	}
 }
 
-func TestAnalyzeBillsReturnsTimeoutErrorWhenGatewayTooSlow(t *testing.T) {
+func TestAnalyzeBillsLogsContentTypesWhenResponseHasNoTextBlock(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","text":""},{"type":"thinking","text":"internal"}]}`))
+	}))
+	defer server.Close()
+
+	var logBuffer bytes.Buffer
+	originalErrorLogger := logger.Error
+	logger.Error = log.New(&logBuffer, "[ERROR] ", 0)
+	t.Cleanup(func() {
+		logger.Error = originalErrorLogger
+	})
+
+	agent := NewAIAgent(Config{
+		BaseURL:        server.URL,
+		APIKey:         "secret-token",
+		Model:          "claude-3-5-sonnet-20241022",
+		TimeoutSeconds: 30,
+	})
+
+	_, err := agent.AnalyzeBills([]model.Bill{{Category: "food", Amount: -20}}, "shared")
+	if err == nil || err.Error() != "AI 服务返回异常" {
+		t.Fatalf("expected malformed response error, got %v", err)
+	}
+
+	logged := logBuffer.String()
+	for _, expected := range []string{
+		"AI gateway returned no text block",
+		"content_count=2",
+		"content_types=tool_use,thinking",
+		"model=claude-3-5-sonnet-20241022",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("expected log to contain %q, got %s", expected, logged)
+		}
+	}
+}
+
+func TestAnalyzeBillsLogsTimeoutDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(150 * time.Millisecond)
 		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"slow response"}]}`))
 	}))
 	defer server.Close()
+
+	var logBuffer bytes.Buffer
+	originalErrorLogger := logger.Error
+	logger.Error = log.New(&logBuffer, "[ERROR] ", 0)
+	t.Cleanup(func() {
+		logger.Error = originalErrorLogger
+	})
 
 	agent := NewAIAgent(Config{
 		BaseURL:        server.URL,
@@ -135,24 +241,54 @@ func TestAnalyzeBillsReturnsTimeoutErrorWhenGatewayTooSlow(t *testing.T) {
 	if err == nil || err.Error() != "AI 服务请求超时" {
 		t.Fatalf("expected timeout error, got %v", err)
 	}
+
+	logged := logBuffer.String()
+	for _, expected := range []string{
+		"AI gateway request timed out",
+		"model=claude-3-5-sonnet-20241022",
+		"/v1/messages",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("expected log to contain %q, got %s", expected, logged)
+		}
+	}
 }
 
-func TestAnalyzeBillsReturnsErrorWhenAnthropicResponseHasNoTextBlock(t *testing.T) {
+func TestAnalyzeBillsLogsConnectionFailureDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","text":""}]}`))
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
 	}))
-	defer server.Close()
+	serverURL := server.URL
+	server.Close()
+
+	var logBuffer bytes.Buffer
+	originalErrorLogger := logger.Error
+	logger.Error = log.New(&logBuffer, "[ERROR] ", 0)
+	t.Cleanup(func() {
+		logger.Error = originalErrorLogger
+	})
 
 	agent := NewAIAgent(Config{
-		BaseURL:        server.URL,
+		BaseURL:        serverURL,
 		APIKey:         "secret-token",
 		Model:          "claude-3-5-sonnet-20241022",
 		TimeoutSeconds: 30,
 	})
 
-	_, err := agent.AnalyzeBills([]model.Bill{{Category: "food", Amount: -20}}, "shared")
-	if err == nil || err.Error() != "AI 服务返回异常" {
-		t.Fatalf("expected malformed response error, got %v", err)
+	_, err := agent.AnalyzeBills([]model.Bill{{Category: "food", Amount: -20}}, "personal")
+	if err == nil || err.Error() != "AI 服务连接失败" {
+		t.Fatalf("expected connection failure error, got %v", err)
+	}
+
+	logged := logBuffer.String()
+	for _, expected := range []string{
+		"AI gateway request failed",
+		"model=claude-3-5-sonnet-20241022",
+		"/v1/messages",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("expected log to contain %q, got %s", expected, logged)
+		}
 	}
 }
 
