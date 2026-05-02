@@ -21,7 +21,8 @@
       <!-- 用户菜单 -->
       <el-dropdown @command="handleCommand" trigger="click">
         <div class="user-info">
-          <el-avatar :size="32" class="user-avatar">
+          <el-avatar v-if="avatarUrl" :size="32" :src="avatarUrl" class="user-avatar" />
+          <el-avatar v-else :size="32" class="user-avatar">
             {{ username?.charAt(0)?.toUpperCase() || 'U' }}
           </el-avatar>
           <span class="user-name">{{ username }}</span>
@@ -61,6 +62,7 @@ const authStore = useAuthStore()
 const isDark = ref(false)
 
 const username = computed(() => authStore.user?.username || '用户')
+const avatarUrl = computed(() => authStore.user?.avatar_url || '')
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
@@ -70,6 +72,11 @@ const toggleTheme = () => {
 }
 
 const handleCommand = async (command: string) => {
+  if (command === 'profile') {
+    router.push('/profile')
+    return
+  }
+
   if (command === 'logout') {
     await authStore.logout()
     router.push('/login')
@@ -186,3 +193,4 @@ onMounted(() => {
   font-weight: 500;
 }
 </style>
+

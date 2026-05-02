@@ -2,6 +2,9 @@ export interface User {
   id: number
   username: string
   email: string
+  avatar_url?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface Space {
@@ -61,4 +64,14 @@ export interface RegisterRequest {
   username: string
   password: string
   email: string
+}
+
+export interface UpdateProfileRequest {
+  username: string
+  email: string
+}
+
+export interface ChangePasswordRequest {
+  current_password: string
+  new_password: string
 }

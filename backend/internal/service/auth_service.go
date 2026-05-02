@@ -120,6 +120,68 @@ func (s *AuthService) RefreshToken(refreshToken string) (string, string, error) 
 	return s.generateTokens(user)
 }
 
+func (s *AuthService) GetProfile(userID uint) (*model.User, error) {
+	return s.UserRepo.GetByID(userID)
+}
+
+func (s *AuthService) UpdateProfile(userID uint, username, email string) (*model.User, error) {
+	exists, err := s.UserRepo.ExistsByUsernameExcludingID(username, userID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, errors.New("username already exists")
+	}
+
+	exists, err = s.UserRepo.ExistsByEmailExcludingID(email, userID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, errors.New("email already exists")
+	}
+
+	if err := s.UserRepo.UpdateProfile(userID, username, email); err != nil {
+		return nil, err
+	}
+
+	return s.UserRepo.GetByID(userID)
+}
+
+func (s *AuthService) UpdateAvatar(userID uint, avatarURL string) (*model.User, error) {
+	if err := s.UserRepo.UpdateAvatarURL(userID, avatarURL); err != nil {
+		return nil, err
+	}
+
+	return s.UserRepo.GetByID(userID)
+}
+
+func (s *AuthService) ChangePassword(userID uint, currentPassword, newPassword string) error {
+	if currentPassword == newPassword {
+		return errors.New("new password cannot be the same as current password")
+	}
+
+	user, err := s.UserRepo.GetByID(userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(currentPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.UserRepo.UpdatePassword(userID, string(hashedPassword)); err != nil {
+		return err
+	}
+
+	return s.UserRepo.ClearRefreshToken(userID)
+}
+
 func (s *AuthService) Logout(userID uint) error {
 	return s.UserRepo.ClearRefreshToken(userID)
 }

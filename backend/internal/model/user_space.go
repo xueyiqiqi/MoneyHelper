@@ -6,12 +6,13 @@ import (
 )
 
 type User struct {
-	ID             uint           `gorm:"primaryKey" json:"id"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
-	Username       string         `gorm:"type:varchar(50);uniqueIndex;not null" json:"username"`
-	Email          string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"email"`
+	ID                 uint           `gorm:"primaryKey" json:"id"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"-"`
+	Username           string         `gorm:"type:varchar(50);uniqueIndex;not null" json:"username"`
+	Email              string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"email"`
+	AvatarURL          string         `gorm:"type:varchar(255)" json:"avatar_url"`
 	HashedPassword     string         `gorm:"type:varchar(255);not null" json:"-"`
 	HashedRefreshToken string         `gorm:"type:text" json:"-"`
 	Spaces             []Space        `gorm:"many2many:space_user_links;" json:"spaces,omitempty"`

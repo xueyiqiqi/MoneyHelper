@@ -54,6 +54,7 @@ func main() {
 	r.Use(middleware.RecoveryMiddleware())
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(middleware.CORSMiddleware())
+	r.Static("/uploads", "./uploads")
 
 	v1 := r.Group("/api/v1")
 	{
@@ -65,6 +66,10 @@ func main() {
 		auth.Use(middleware.JWTMiddleware())
 		{
 			auth.POST("/logout", authHandler.Logout)
+			auth.GET("/profile", authHandler.GetProfile)
+			auth.PUT("/profile", authHandler.UpdateProfile)
+			auth.POST("/profile/password", authHandler.ChangePassword)
+			auth.POST("/profile/avatar", authHandler.UploadAvatar)
 			auth.POST("/spaces", spaceHandler.CreateSpace)
 			auth.GET("/spaces", spaceHandler.GetUserSpaces)
 			auth.POST("/spaces/:id/members", middleware.PermissionMiddleware("space", "admin"), spaceHandler.AddMember)

@@ -17,9 +17,32 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('refresh_token', refresh)
   }
 
+  const fetchProfile = async () => {
+    const { data } = await authApi.getProfile()
+    user.value = data
+    return data
+  }
+
+  const updateProfileState = (nextUser: User) => {
+    user.value = nextUser
+  }
+
+  const initializeAuth = async () => {
+    if (!token.value) {
+      return
+    }
+
+    try {
+      await fetchProfile()
+    } catch {
+      user.value = null
+    }
+  }
+
   const login = async (credentials: LoginRequest) => {
     const { data } = await authApi.login(credentials)
     setTokens(data.access_token, data.refresh_token)
+    await fetchProfile()
   }
 
   const logout = async () => {
@@ -36,5 +59,16 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, token, isLoggedIn, setTokens, login, logout }
+  return {
+    user,
+    token,
+    isLoggedIn,
+    setTokens,
+    fetchProfile,
+    updateProfileState,
+    initializeAuth,
+    login,
+    logout,
+  }
 })
+
